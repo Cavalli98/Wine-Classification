@@ -1,0 +1,33 @@
+
+  model {
+    # Likelihood 
+    for (i in 1:N) {
+    	mu[i] <- beta0 + inprod(X[i,], beta)
+    	
+    	# thetas
+    	theta[i,1] <- pnorm(thresholds[1], mu[i], tau)
+    	for (k in 2:(nLevels-2)) {
+    	  theta[i,k] <- max(0, pnorm(thresholds[k], mu[i], tau) - pnorm(thresholds[k-1], mu[i], tau))
+    	}
+    	theta[i,nLevels-1] <- pnorm(thresholds[nLevels-1], mu[i], tau)
+    	
+    	Y[i] ~ dcat(theta[i,1:(nLevels-1)])
+    } 
+  
+    # Priors
+    beta0 ~ dnorm(0, 0.001)
+    sd ~ dunif(0, 100) # standard deviation
+    tau <- 1 / (sd * sd)
+    
+    for (j in 1:p) {
+      beta_temp[j] ~ dnorm(0, 0.001)	
+    	beta[j] <- beta_temp[j]
+    }
+    
+    # thresholds (first and last are fixed)
+    thresholdsTau <- 1/(nLevels-1)
+    for (k in 2:(nLevels-1)) {
+      thresholds[k] ~ dnorm(k+0.5, thresholdsTau)
+    }
+  }
+  

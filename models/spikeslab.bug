@@ -1,0 +1,32 @@
+
+  model {
+    # Likelihood 
+    for (i in 1:N) {
+    	mu[i] <- beta0 + inprod(X[i,], beta)
+    	Y[i] ~ dnorm(mu[i], tau)
+    } 
+  
+    # Tracing the visited model
+    for (j in 1:p) {
+    	TempIndicator[j] <- g[j]*pow(2, j) 
+    }
+    mdl <- 1 + sum(TempIndicator[]) # model index in binary coding 
+  
+    # Priors
+    beta0 ~ dnorm(0, 0.001)
+    sigma ~ dunif(0, 100) # standard deviation
+    tau <- 1 / (sigma * sigma)
+  
+    for(j in 1:p) {
+    	tprior[j] <- 1 / var_beta[j]
+    	bprior[j] <- 0
+    }
+  
+    for(j in 1:p) {
+    	beta_temp[j] ~ dnorm(bprior[j], tprior[j])
+    	g[j] ~ dbern(theta[j])
+    	theta[j] ~ dunif(0,1)
+    	beta[j] <- g[j] * beta_temp[j]	
+    }
+  }
+  

@@ -1,0 +1,200 @@
+```{r}
+rm(list=ls())
+library("ggplot2")
+library(patchwork)
+library(rjags)
+library(coda)
+```
+
+```{r}
+source("utils_functions.R")
+```
+
+```{r}
+wine = readRDS(file="./data/wine.Rda")
+```
+
+Pre processing data: remove outliers and scale data:
+```{r}
+df_cleaned <- remove_outliers(wine)
+df <- as.data.frame(scale(df_cleaned[, 1:(ncol(df_cleaned) - 1)]))
+df <- cbind(df, df_cleaned$quality)
+names(df)[names(df) == "df_cleaned$quality"] <- "quality"
+summary(df)
+```
+
+Since this model will take too much time, we select only a portion to divide it in train and test set.
+We keep only 20% of the data.
+```{r}
+set.seed(46)
+keep_size = 0.2 * nrow(df)
+indexes = sample(1:nrow(df), size=keep_size)
+df <- df[+indexes,]
+
+```
+
+The 20% of our data now is split in train and test set.
+```{r}
+indexes  = sample(1:keep_size, size=0.5 * keep_size)
+train <- df[-indexes,]
+test <- df[+indexes,]
+ggplot() + 
+  geom_histogram(data=train, aes(x=quality), bins=10, center=0, binwidth = 1, color=red_ex, fill=red_ex, alpha=0.4) +
+  geom_histogram(data=test, aes(x=quality), bins=10, center=0, binwidth = 1, color=light_blue_ex, fill=light_blue_ex, alpha=0.4) + 
+  xlim(c(0, 10)) 
+```
+
+Preparing data for Jags
+```{r}
+Y_train = as.vector(train$quality)
+X_train = as.matrix(train[,!names(df) %in% c("quality"), drop=F])
+```
+
+
+```{r}
+model_string <- textConnection("model{
+  # Likelihood
+  for (i in 1:N){
+    Y[i] ~ dcat(pi[i, 1:C])
+    for (c in 1:C) {
+      exp_z[i,c] <- exp(z[i, c])                  # softmax function
+      pi[i, c]    <- exp_z[i, c]/sum(exp_z[i, ])   # softmax function
+      z[i, c]    <- beta[c, ] %*% X[i, ]          # linear model
+    }
+  }
+  # Prior
+  for (c in 1: C){
+    for (k in 1: K){
+      beta[c, k] ~ dnorm(0, 0.01)       # Gaussian prior
+    }
+  }
+}")
+```
+
+```{r}
+#N <- dim(X_train)[1]  # number of observations
+#K <- dim(X_train)[2]  # number of covariates
+#C <- 10         # number of categories
+
+
+#data <-list(Y=Y_train, X=X_train, N=N, C=C, K=K)
+
+#burn     <- 500
+#n.iter   <- 5000
+#thin     <- 5
+#n.chains <- 2
+```
+
+```{r}
+#model <- jags.model(model_string,data = data, n.chains=n.chains,quiet=FALSE)
+```
+
+```{r}
+#update(model, burn, n.iter=n.iter)
+```
+
+```{r}
+#samples <- coda.samples(model, variable.names=c("beta"), thin=thin, n.iter=n.iter)
+```
+```{r}
+#save(samples, file="chains/categorical_standardized_gaussian.dat")
+```
+```{r}
+#load(file="chains/categorical_standardized_gaussian.dat")
+```
+
+
+```{r}
+#betas <- c()
+#for (i in 1: K){
+  #for(j in 1:10)
+   # betas <- append(betas, paste("beta.", as.character(j), ".", as.character(i), ".", sep=""))
+#}
+#thin(samples)
+
+# SAVE THE PLOTS
+#for (i in 1:(K * 10)){
+  #print(i)
+  #x <-ggplot_traceplot(samples, betas[i])
+  #ggsave(paste("pictures/categorical/traces/trace_beta", as.character(i), ".png", sep=""), plot=x)
+  #x <-ggplot_density_MC(samples, betas[i])
+  #ggsave(paste("pictures/categorical/densities/density_beta", as.character(i), ".png", sep=""), plot=x)
+#}
+
+```
+
+
+```{r}
+#for (i in 1:(K * 10)){
+ # print(i)
+  #x <-ggplot_autocorr(samples, betas[i], thinning=thin(samples))
+  #ggsave(paste("pictures/categorical/corr_plts/corr_beta", as.character(i), ".png", sep=""), plot=x)
+
+#}
+```
+
+```{r}
+N <- dim(X_train)[1]  # number of observations
+K <- dim(X_train)[2]  # number of covariates
+C <- 10         # number of categories
+
+
+data <-list(Y=Y_train, X=X_train, N=N, C=C, K=K)
+
+
+burn     <- 500
+n.iter   <- 5000
+thin     <- 100
+n.chains <- 2
+n.samples<- 100000
+```
+
+```{r}
+model <- jags.model(model_string,data = data, n.chains=n.chains,quiet=FALSE)
+```
+
+```{r}
+update(model, burn, n.iter=n.iter)
+```
+
+```{r}
+samples <- coda.samples(model, variable.names=c("beta"), thin=thin, n.iter=n.samples)
+```
+```{r}
+save(samples, file="chains/categorical_standardized_gaussian_thin100.dat")
+```
+```{r}
+load(file="chains/categorical_standardized_gaussian_thin100.dat")
+```
+Plotting the traces, correlation, and density plots of the covariates.
+
+```{r}
+n <- names(wine)
+categories <- c()
+covariates <- c()
+betas <- c()
+for (i in 1: K){
+  for(j in 1:10){
+    betas <- append(betas, paste("beta.", as.character(j), ".", as.character(i), ".", sep=""))
+    covariates<- append(covariates, n[i])
+    categories <- append(categories, j)
+  }
+}
+
+thin(samples)
+category = 0
+# SAVE THE PLOTS
+for (i in 1:(K * 10 )){
+  print(i)
+  x <-ggplot_traceplot(samples, betas[i])
+  ggsave(paste("pictures/categorical/traces_thin100/trace_beta_cat_", as.character(categories[i]),"_cov_", covariates[i], ".png", sep=""), plot=x)
+  x <-ggplot_density_MC(samples, betas[i])
+  ggsave(paste("pictures/categorical/densities_thin100/density_beta_cat_", as.character(categories[i]),"_cov_", covariates[i], ".png", sep=""), plot=x)
+  x <-ggplot_autocorr(samples, betas[i], thinning=thin(samples))
+  ggsave(paste("pictures/categorical/corr_plts_thin100/corr_betadensity_beta_cat_", as.character(categories[i]),"_cov_",covariates[i],".png", sep=""), plot=x)
+}
+
+```
+
+
+

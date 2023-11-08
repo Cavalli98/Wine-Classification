@@ -1,0 +1,139 @@
+---
+title: "Projects"
+author: "Federico Bassetti"
+date: "27/5/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=FALSE}
+rm(list=ls())
+```
+
+
+Set the directory where you have the dataset on your computer. 
+```{r}
+setwd("~/Google Drive/didattica/didattica21-22/bayesianlearning/dataandproject/toupload")
+```
+
+
+# 1. Forest fires
+
+```{r}
+forest <- read.csv("forestfire.txt",sep="" )
+summary(forest)
+plot(density(log(forest$area)))
+forest$area <- log(forest$area+1)
+forest <- forest[,-c(1,2)]
+library(fastDummies)
+forest <- fastDummies::dummy_cols(forest, remove_first_dummy = TRUE)[-c(1,2)]
+summary(lm(area~., data=forest))
+```
+
+
+
+
+# 2. Ames house price
+```{r}
+ames <- read.csv("ameshouse.txt", sep="")
+
+plot(density(log(ames$SalePrice)))
+
+ames <- ames[which(complete.cases(ames)),]
+```
+
+# 3. Ford Car Price Prediction
+
+```{r}
+ford <- read.csv("ford.txt", sep=" ")
+summary(ford)
+
+plot(ford$mileage,ford$price)
+``` 
+
+# 4. CO2 data
+
+```{r}
+CO2=readRDS(file="CO2-2005-2009.Rda")
+
+CO2bis=CO2[,(3:9)]
+dim(CO2bis)
+
+plot(CO2$GDP,CO2$co2percap,xlab="GDP",ylab="CO2emission")
+LM =lm(co2percap~.,data=CO2bis)
+summary(LM)
+q=quantile(CO2$GDP,0.65)
+plot(CO2$GDP[CO2$GDP>q],CO2$co2percap[CO2$GDP>q],xlab="GDP",ylab="CO2emission")
+
+#plot(CO2$GDP[CO2$GDP<q],CO2$co2percap[CO2$GDP<q],xlab="GDP",ylab="CO2emission")
+
+```
+
+
+
+# 4. Bank Marketing data
+
+```{r}
+bank <- read.csv("bank.txt", sep="")
+
+summary(bank)
+```
+
+# 5. Salary data
+```{r}
+salary <- read.csv("salary.txt", sep="")
+summary(salary)
+```
+
+
+# 6. Wine
+
+
+```{r}
+wine=readRDS(file="wine.Rda")
+
+#binary version !!
+wine01=wine
+wine01$quality <- as.factor(ifelse(wine$quality <6, 0, 1))
+table(wine01$quality)
+summary(glm(quality~., data=wine01, family=binomial()))
+
+
+```
+`
+# 7. Covid Data
+
+```{r}
+covidLom2020_21=readRDS(file="covidLom2020-21.Rda")
+dim(covidLom2020_21)
+
+plot(covidLom2020_21$day,covidLom2020_21$newpos)
+d=as.Date("2021-03-07",format="%Y-%m-%d")
+
+abline(v=d,col="red")
+plot(covidLom2020_21$newpos_av7D[covidLom2020_21$day<d],covidLom2020_21$hospH8[covidLom2020_21$day<d],col="blue",
+     xlab="newposav",ylab="hospH8")
+lines(covidLom2020_21$newpos_av7D[covidLom2020_21$day>d],covidLom2020_21$hospH8[covidLom2020_21$day>d],col="red",type="p")
+
+
+```
+# 7. Coffee Price
+
+```{r}
+coffee <- read.csv("coffee.txt", sep="")
+coffee$Date=as.Date(coffee$Date)
+plot(coffee$Date,coffee$Open)
+#plot(coffee$Date,coffee$Volume)
+
+
+### frequentistic AR(1) fitting 
+x=coffee$Open
+AR=arima(x,c(1,0,0))
+fitted=AR$residuals+x
+plot(coffee$Open)
+lines(fitted,col="red",type="p")
+```
+

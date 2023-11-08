@@ -1,0 +1,178 @@
+Load libraries and data:
+```{r}
+rm(list=ls())
+library("ggplot2")
+library(patchwork)
+library(rjags)
+library(coda)
+source("utils_functions.R")
+
+wine <- readRDS(file="./data/wine.Rda")
+summary(wine)
+```
+Define labels and features, scale features:
+```{r}
+# Define outcome and design matrix (omit NA value)
+X <- na.omit(as.matrix(wine[,1:(dim(wine)[2]-1)]))
+Y <- na.omit(as.vector(wine$quality))
+
+# standardize matrix
+X <- scale(X)
+
+# Get dimensions
+N <- dim(X)[1]
+p <- dim(X)[2]
+```
+$$
+\newcommand{\iid}{\stackrel{\small\mathrm{iid}}{\sim}}
+\begin{align*}
+  y_j \mid p_j &\ind B(10, p_j) \\[5pt]
+  p_j &\ind \Phi(\beta_0 + x_{\,j}^{\,T}\beta) \\[5pt]
+  \beta_j \mid \gamma_j &\ind (1-\gamma_j)\,\delta_{\{0\}} + \gamma_j\,\mathcal{N}\left(0, \sigma^2_{\beta_j}\right) \\[5pt]
+  \gamma_j \mid \theta_j &\ind \mathcal{B}e\left(\theta_j\right) \\[5pt]
+  \theta_{j} &\iid \pi\left(\theta_j\right)
+\end{align*}
+$$
+Define the JAGS model:
+```{r}
+cat(
+  "
+  model {
+    # Likelihood 
+    for (i in 1:N) {
+    	Y[i] ~ dbin(phi(beta0 + X[i,] %*% beta[]), 10)
+    } 
+  
+    # Tracing the visited model
+    for (j in 1:p) {
+    	TempIndicator[j] <- g[j]*pow(2, j) 
+    }
+    mdl <- 1 + sum(TempIndicator[]) # model index in binary coding 
+  
+    # Priors
+    beta0 ~ dnorm(0, 0.01)
+  
+    for(j in 1:p) {
+    	tprior[j] <- 1 / var_beta[j]
+    	bprior[j] <- 0
+    }
+  
+    for(j in 1:p) {
+    	beta_temp[j] ~ dnorm(bprior[j], tprior[j])
+    	g[j] ~ dbern(theta[j])
+    	theta[j] ~ dunif(0,1)
+    	beta[j] <- g[j] * beta_temp[j]	
+    }
+  }
+  "
+, file = "models/spikeslab_bin.bug")
+
+# Data to pass to JAGS
+data_JAGS <- list(N = N, p = p, Y = Y, X = as.matrix(X), var_beta = rep(1, p))
+
+# A list of initial value for the MCMC algorithm 
+inits = function() {
+  list(beta0 = 0.0, beta_temp = rep(0,p), g = rep(0,p), theta = rep(0.5, p),
+       .RNG.seed = 321, .RNG.name = 'base::Wichmann-Hill') 
+}
+
+# Compile model (+ adaptation)
+model <- jags.model("models/spikeslab_bin.bug", data = data_JAGS,
+                    n.adapt = 1000, inits = inits, n.chains = 2) 
+```
+Burn in:
+```{r}
+# if we want to perform a larger burn in with not adaptation.
+cat("  Updating...\n")
+update(model,n.iter=1000)
+```
+Run chain:
+```{r}
+# Posterior parameters JAGS has to track
+param <- c("beta0", "beta", "g", "mdl", "beta_temp")
+
+# Number of iterations & thinning
+nit <- 100000
+thin <-100
+
+# Sampling (this may take a while)
+cat("  Sampling...\n")
+output <- coda.samples(model = model,
+                       variable.names = param,
+                       n.iter = nit,
+                       thin = thin)
+
+# Save the chain
+save(output, file = 'chains/spikeslab.dat')
+```
+
+```{r}
+# Load chains
+load('chains/spikeslab.dat')
+
+# Look at the structure of the output is an mcmc object of the library coda
+summary(output)
+```
+
+```{r}
+plot(output)
+```
+
+```{r}
+autocorr.plot(output)
+```
+
+```{r}
+pdf(file="spikeslab.pdf")
+par(mfrow = c(2, 2))
+plot(output, auto.layout = FALSE)
+autocorr.plot(output)
+dev.off()
+```
+Covariates inclusion analysis using the **Median Probability Model** (MPM) technique: pick variables with estimated posterior inclusion probabilities higher than $0.5$
+```{r}
+# We save the posterior chain of the inclusion variable in post_g
+post_g <- as.matrix(output[,13:23])
+apply(post_g, 2, "mean")
+post_mean_g <- apply(post_g, 2, "mean") 
+```
+```{r}
+# Plot
+df <- data.frame(value = post_mean_g, var = colnames(X))
+p1 <- ggplot(data = df, aes(y = value, x = var, fill = var)) + 
+  geom_bar(stat="identity") + 
+  geom_hline(mapping = aes(yintercept = .5), col = 2, lwd = 1.1) +
+  coord_flip() + theme_minimal() + theme(legend.position="none") + 
+  ylab("Posterior Inclusion Probabilities") + xlab("")
+p1
+```
+```{r}
+# Select best model according to MPM
+mp_SpSl <- as.vector(which(post_mean_g > 0.5))
+post_mean_g[mp_SpSl]
+# Plot the mdl chain
+plot(output[,"mdl"], pch = 20, xlab = "Iteration", ylab = "Model")
+```
+Covariates inclusion analysis using the **Another way to choose the model** technique: the Highest Posterior Density model (HPD) pick a model with the highest estimated posterior probability.
+```{r}
+# Number of models visited
+length(unique( output[,"mdl"]))
+```
+```{r}
+# Post frequency of visited models
+visited_models <- sort(table(output[,"mdl"]), decreasing = TRUE)
+barplot(visited_models, xlab = "N° Model", ylab = "Posterior Frequency")
+```
+```{r}
+# Getting the unique profiles and sort the results
+unique_model <- unique(post_g, MARGIN = 1)
+freq <- apply(unique_model, 1,
+              function(b) sum(apply(post_g, MARGIN = 1, function(a) all(a == b))))
+cbind(unique_model[order(freq,decreasing = T),], sort(freq,decreasing = T))
+```
+```{r}
+# Select the HPD model 
+colnames(X)[as.logical(unique_model[which.max(freq),])]
+HDP_SpSl <- c(1:12)[as.logical(unique_model[which.max(freq),])]
+```
+
